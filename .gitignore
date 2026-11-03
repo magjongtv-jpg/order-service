@@ -1,7 +1,6 @@
 # Gradle
 .gradle/
 build/
-!gradle/wrapper/gradle-wrapper.jar
 
 # IntelliJ IDEA
 .idea/
@@ -19,3 +18,7 @@ out/
 # Local environment and secrets
 .env
 .env.*
+!.env.example
+
+# Local Claude Code / IDE MCP config
+.mcp.json
