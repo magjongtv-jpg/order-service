@@ -1,0 +1,9 @@
+# Local development against shop-infra (docker compose).
+# Activate with SPRING_PROFILES_ACTIVE=local
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5433/orders
+    username: orders
+    password: orders
+  kafka:
+    bootstrap-servers: localhost:9092
