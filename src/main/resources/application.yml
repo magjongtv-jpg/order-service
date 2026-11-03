@@ -5,14 +5,14 @@ spring:
   application:
     name: order-service
   datasource:
-    url: jdbc:postgresql://localhost:5433/orders
-    username: orders
-    password: orders
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/orders}
+    username: ${DB_USERNAME:orders}
+    password: ${DB_PASSWORD:orders}
   jpa:
     hibernate:
       ddl-auto: validate
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 
 management:
   endpoints:
