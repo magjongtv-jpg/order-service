@@ -9,8 +9,11 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
@@ -20,6 +23,7 @@ import org.testcontainers.kafka.KafkaContainer;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -35,6 +39,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(properties = "orders.events.retry-interval=PT1H")
 @AutoConfigureMockMvc
+@ExtendWith(OutputCaptureExtension.class)
 class OrderEventsIntegrationTest {
 
 	private static final Duration TIMEOUT = Duration.ofSeconds(30);
@@ -74,7 +79,7 @@ class OrderEventsIntegrationTest {
 		assertThat(published.getStatus().name()).isEqualTo("PENDING");
 		assertThat(published.getPublishFailureReason()).isNull();
 
-		JsonNode event = consumeEvent(orderId);
+		JsonNode event = JSON.readTree(consume(orderId).value());
 		assertThat(fieldNames(event)).containsExactlyInAnyOrder(
 				"eventId", "eventType", "eventVersion", "occurredAt", "payload");
 		assertThat(event.get("eventId").asString()).isEqualTo(published.getCreatedEventId().toString());
@@ -89,6 +94,25 @@ class OrderEventsIntegrationTest {
 	}
 
 	@Test
+	void postOrderCarriesOneTraceFromRequestToKafka(CapturedOutput output) throws Exception {
+		String body = mockMvc.perform(post("/orders")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"items":[{"sku":"BOOK-001","quantity":2}]}"""))
+				.andExpect(status().isCreated())
+				.andReturn().getResponse().getContentAsString();
+		UUID orderId = UUID.fromString(JSON.readTree(body).get("orderId").asString());
+		awaitPublished(orderId);
+
+		ConsumerRecord<String, String> record = consume(orderId);
+		assertThat(record.headers().lastHeader("traceparent")).isNotNull();
+		String traceId = new String(record.headers().lastHeader("traceparent").value(), StandardCharsets.UTF_8)
+				.split("-")[1];
+		assertThat(logLine(output, "Created order " + orderId)).contains(traceId);
+		assertThat(logLine(output, "for order " + orderId + " to partition")).contains(traceId);
+	}
+
+	@Test
 	void retryJobPublishesOrdersThatWereNotPublished() {
 		Order order = saveUnpublishedOrder();
 
@@ -96,7 +120,7 @@ class OrderEventsIntegrationTest {
 
 		Order published = orderRepository.findById(order.getId()).orElseThrow();
 		assertThat(published.getPublishedAt()).isNotNull();
-		JsonNode event = consumeEvent(order.getId());
+		JsonNode event = JSON.readTree(consume(order.getId()).value());
 		assertThat(event.get("eventId").asString()).isEqualTo(order.getCreatedEventId().toString());
 	}
 
@@ -137,7 +161,14 @@ class OrderEventsIntegrationTest {
 		return await(() -> orderRepository.findById(orderId).filter(order -> order.getPublishedAt() != null));
 	}
 
-	private JsonNode consumeEvent(UUID orderId) {
+	private static String logLine(CapturedOutput output, String text) {
+		return output.getAll().lines()
+				.filter(line -> line.contains(text))
+				.findFirst()
+				.orElseThrow(() -> new AssertionError("No log line contains: " + text));
+	}
+
+	private ConsumerRecord<String, String> consume(UUID orderId) {
 		Map<String, Object> config = Map.of(
 				ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers(),
 				ConsumerConfig.GROUP_ID_CONFIG, "test-" + UUID.randomUUID(),
@@ -145,7 +176,7 @@ class OrderEventsIntegrationTest {
 		try (KafkaConsumer<String, String> consumer =
 				new KafkaConsumer<>(config, new StringDeserializer(), new StringDeserializer())) {
 			consumer.subscribe(List.of("orders.created"));
-			ConsumerRecord<String, String> record = await(() -> {
+			return await(() -> {
 				for (ConsumerRecord<String, String> candidate : consumer.poll(Duration.ofMillis(500))) {
 					if (orderId.toString().equals(candidate.key())) {
 						return Optional.of(candidate);
@@ -153,7 +184,6 @@ class OrderEventsIntegrationTest {
 				}
 				return Optional.empty();
 			});
-			return JSON.readTree(record.value());
 		}
 	}
 

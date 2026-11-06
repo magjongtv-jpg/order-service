@@ -24,6 +24,8 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-kafka'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry'
+	implementation 'io.micrometer:micrometer-tracing-bridge-otel'
 	implementation 'org.flywaydb:flyway-database-postgresql'
 	implementation 'net.javacrumbs.shedlock:shedlock-spring:7.10.1'
 	implementation 'net.javacrumbs.shedlock:shedlock-provider-jdbc-template:7.10.1'

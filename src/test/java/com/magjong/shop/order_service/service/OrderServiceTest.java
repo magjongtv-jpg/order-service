@@ -14,6 +14,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -27,7 +29,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
+@ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
 class OrderServiceTest {
 
 	private static final Instant NOW = Instant.parse("2026-11-05T10:15:30Z");
@@ -81,6 +83,13 @@ class OrderServiceTest {
 		assertThat(response.createdAt()).isEqualTo(NOW);
 		assertThat(response.items()).containsExactly(
 				new OrderItemResponse("BOOK-001", 2), new OrderItemResponse("PEN-002", 1));
+	}
+
+	@Test
+	void createOrderLogsOrderIdAndItemCount(CapturedOutput output) {
+		OrderResponse response = orderService.createOrder(request());
+
+		assertThat(output).contains("Created order " + response.orderId() + " with 2 items");
 	}
 
 	private static CreateOrderRequest request() {

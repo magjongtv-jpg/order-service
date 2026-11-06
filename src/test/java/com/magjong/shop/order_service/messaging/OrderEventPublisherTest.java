@@ -3,6 +3,8 @@ package com.magjong.shop.order_service.messaging;
 import com.magjong.shop.order_service.domain.Order;
 import com.magjong.shop.order_service.repository.OrderRepository;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.NetworkException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,6 +13,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.kafka.KafkaException;
 import org.springframework.kafka.core.KafkaProducerException;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -30,7 +34,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
+@ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
 class OrderEventPublisherTest {
 
 	private static final Instant NOW = Instant.parse("2026-11-05T10:15:30Z");
@@ -91,6 +95,27 @@ class OrderEventPublisherTest {
 	}
 
 	@Test
+	void publishLogsEventAndOrderIdWhenSendFails(CapturedOutput output) {
+		when(kafkaTemplate.send(anyString(), anyString(), any()))
+				.thenReturn(CompletableFuture.failedFuture(new NetworkException("broker down")));
+
+		publisher.publish(order).join();
+
+		assertThat(output).contains("Publishing OrderCreated event " + order.getCreatedEventId()
+				+ " for order " + order.getId() + " failed: NETWORK_EXCEPTION NetworkException");
+	}
+
+	@Test
+	void publishLogsPartitionAndOffsetOnSuccess(CapturedOutput output) {
+		when(kafkaTemplate.send(anyString(), anyString(), any())).thenReturn(succeeded());
+
+		publisher.publish(order).join();
+
+		assertThat(output).contains("Published OrderCreated event " + order.getCreatedEventId()
+				+ " for order " + order.getId() + " to partition 3 at offset 42");
+	}
+
+	@Test
 	void publishRecordsFailureWhenSendThrows() {
 		when(kafkaTemplate.send(anyString(), anyString(), any()))
 				.thenThrow(new KafkaException("Send failed", new TimeoutException("metadata not available")));
@@ -126,6 +151,8 @@ class OrderEventPublisherTest {
 	}
 
 	private static CompletableFuture<SendResult<String, OrderCreatedEvent>> succeeded() {
-		return CompletableFuture.completedFuture(null);
+		RecordMetadata metadata = new RecordMetadata(new TopicPartition("orders.created", 3), 42, 0, 0, 0, 0);
+		return CompletableFuture.completedFuture(
+				new SendResult<>(new ProducerRecord<>("orders.created", "key", null), metadata));
 	}
 }

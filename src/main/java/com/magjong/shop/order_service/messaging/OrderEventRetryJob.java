@@ -13,7 +13,10 @@ import org.springframework.stereotype.Component;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -48,20 +51,31 @@ public class OrderEventRetryJob {
 		if (orders.isEmpty()) {
 			return;
 		}
-		log.info("Retrying OrderCreated for {} unpublished orders", orders.size());
-		awaitAll(orders.stream().map(orderEventPublisher::publish).toList());
+		log.info("Retrying OrderCreated for {} unpublished orders, oldest created at {}",
+				orders.size(), orders.getFirst().getCreatedAt());
+		Map<UUID, CompletableFuture<Void>> sends = new LinkedHashMap<>();
+		orders.forEach(order -> sends.put(order.getId(), orderEventPublisher.publish(order)));
+		awaitAll(sends);
 	}
 
-	private void awaitAll(List<CompletableFuture<Void>> sends) {
+	private void awaitAll(Map<UUID, CompletableFuture<Void>> sends) {
 		try {
-			CompletableFuture.allOf(sends.toArray(CompletableFuture[]::new))
+			CompletableFuture.allOf(sends.values().toArray(CompletableFuture[]::new))
 					.get(SEND_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
 		}
 		catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
+			log.warn("Retry batch was interrupted; unfinished orders: {}", unfinished(sends));
 		}
 		catch (ExecutionException | TimeoutException e) {
-			log.warn("Retry batch did not finish cleanly", e);
+			log.warn("Retry batch did not finish within {}; unfinished orders: {}", SEND_TIMEOUT, unfinished(sends), e);
 		}
+	}
+
+	private static List<UUID> unfinished(Map<UUID, CompletableFuture<Void>> sends) {
+		return sends.entrySet().stream()
+				.filter(send -> !send.getValue().isDone())
+				.map(Map.Entry::getKey)
+				.toList();
 	}
 }

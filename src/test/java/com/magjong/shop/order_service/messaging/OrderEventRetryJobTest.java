@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.data.domain.Limit;
 
 import java.time.Clock;
@@ -22,7 +24,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
+@ExtendWith({MockitoExtension.class, OutputCaptureExtension.class})
 class OrderEventRetryJobTest {
 
 	private static final Instant NOW = Instant.parse("2026-11-05T10:15:30Z");
@@ -78,6 +80,19 @@ class OrderEventRetryJobTest {
 		job.publishPendingEvents();
 
 		assertThat(send).isDone();
+	}
+
+	@Test
+	void publishPendingEventsLogsUnfinishedOrdersWhenInterrupted(CapturedOutput output) {
+		Order order = Order.createPending(NOW.minusSeconds(120));
+		when(orderRepository.findUnpublished(any(), any())).thenReturn(List.of(order));
+		when(orderEventPublisher.publish(order)).thenReturn(new CompletableFuture<>());
+
+		Thread.currentThread().interrupt();
+		job.publishPendingEvents();
+
+		assertThat(Thread.interrupted()).isTrue();
+		assertThat(output).contains("Retry batch was interrupted; unfinished orders: [" + order.getId() + "]");
 	}
 
 	@Test
