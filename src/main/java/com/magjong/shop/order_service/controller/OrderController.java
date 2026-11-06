@@ -4,6 +4,7 @@ import com.magjong.shop.order_service.dto.CreateOrderRequest;
 import com.magjong.shop.order_service.dto.OrderResponse;
 import com.magjong.shop.order_service.service.OrderService;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -15,13 +16,10 @@ import java.net.URI;
 
 @RestController
 @RequestMapping("/orders")
+@RequiredArgsConstructor
 public class OrderController {
 
 	private final OrderService orderService;
-
-	public OrderController(OrderService orderService) {
-		this.orderService = orderService;
-	}
 
 	@PostMapping
 	public ResponseEntity<OrderResponse> createOrder(@Valid @RequestBody CreateOrderRequest request) {

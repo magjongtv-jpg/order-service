@@ -11,6 +11,9 @@ import jakarta.persistence.PostLoad;
 import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
@@ -22,6 +25,8 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "orders")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Order implements Persistable<UUID> {
 
 	@Id
@@ -50,10 +55,8 @@ public class Order implements Persistable<UUID> {
 	private List<OrderItem> items = new ArrayList<>();
 
 	@Transient
+	@Getter(AccessLevel.NONE)
 	private boolean isNew = true;
-
-	protected Order() {
-	}
 
 	public static Order createPending(Instant now) {
 		Order order = new Order();
@@ -71,11 +74,6 @@ public class Order implements Persistable<UUID> {
 	}
 
 	@Override
-	public UUID getId() {
-		return id;
-	}
-
-	@Override
 	public boolean isNew() {
 		return isNew;
 	}
@@ -84,30 +82,6 @@ public class Order implements Persistable<UUID> {
 	@PostPersist
 	void markNotNew() {
 		isNew = false;
-	}
-
-	public OrderStatus getStatus() {
-		return status;
-	}
-
-	public Instant getCreatedAt() {
-		return createdAt;
-	}
-
-	public Instant getUpdatedAt() {
-		return updatedAt;
-	}
-
-	public UUID getCreatedEventId() {
-		return createdEventId;
-	}
-
-	public Instant getPublishedAt() {
-		return publishedAt;
-	}
-
-	public String getPublishFailureReason() {
-		return publishFailureReason;
 	}
 
 	public List<OrderItem> getItems() {
