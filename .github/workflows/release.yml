@@ -1,0 +1,78 @@
+name: Release
+
+# Releases go from release/X.Y.Z into master. The validate job runs on every
+# PR to master and blocks merging when the branch or version is wrong. After
+# the merge, the release job tags the merge commit, creates the GitHub Release
+# and opens a back-merge PR from master into develop.
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, reopened, synchronize, edited, closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event.action != 'closed' || github.event.pull_request.merged
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check release branch and version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_REF: ${{ github.head_ref }}
+          IS_MERGED: ${{ github.event.pull_request.merged }}
+        run: |
+          if [[ ! "$HEAD_REF" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::PRs into master must come from a release/X.Y.Z branch, got '$HEAD_REF'."
+            exit 1
+          fi
+          version="${BASH_REMATCH[1]}"
+
+          if [[ "$IS_MERGED" != "true" ]]; then
+            latest=$(gh api "repos/$GH_REPO/tags" --paginate --jq '.[].name' \
+              | sed -n 's/^v\([0-9]*\.[0-9]*\.[0-9]*\)$/\1/p' | sort -V | tail -n 1)
+            highest=$(printf '%s\n%s\n' "$latest" "$version" | sort -V | tail -n 1)
+            if [[ -n "$latest" && ( "$version" == "$latest" || "$highest" != "$version" ) ]]; then
+              echo "::error::Version $version must be higher than the latest release v$latest."
+              exit 1
+            fi
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Release version: v$version"
+
+  release:
+    needs: validate
+    if: github.event.action == 'closed' && github.event.pull_request.merged
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: v${{ needs.validate.outputs.version }}
+      MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+    steps:
+      - name: Create tag and GitHub Release
+        run: gh release create "$TAG" --target "$MERGE_SHA" --title "$TAG" --generate-notes
+
+      - name: Open back-merge PR into develop
+        run: |
+          if [[ -n "$(gh pr list --base develop --head master --state open --json number --jq '.[].number')" ]]; then
+            echo "A back-merge PR from master into develop is already open."
+            exit 0
+          fi
+          gh pr create --base develop --head master \
+            --title "Back-merge $TAG into develop" \
+            --body "Brings fixes made on the release branch for $TAG back into develop. Merge with a merge commit, not squash."
