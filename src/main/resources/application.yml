@@ -9,13 +9,28 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: validate
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
+      acks: all
+      properties:
+        spring.json.add.type.headers: false
+        max.block.ms: 5000
+        request.timeout.ms: 10000
+        delivery.timeout.ms: 15000
 
 management:
   endpoints:
     web:
       exposure:
         include: health,info
+
+orders:
+  events:
+    retry-interval: PT30S
+    grace-period: PT1M
