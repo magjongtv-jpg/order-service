@@ -27,6 +27,12 @@ public class OrderEventRetryJob {
 
 	static final int BATCH_SIZE = 50;
 	static final Duration SEND_TIMEOUT = Duration.ofSeconds(30);
+	/**
+	 * Limits how long one run keeps starting sends. A send can block for up to max.block.ms when the broker
+	 * is unreachable, so without a limit a batch could outlast lockAtMostFor and overlap with another
+	 * instance. Worst case per run: DISPATCH_BUDGET + max.block.ms + SEND_TIMEOUT, below lockAtMostFor.
+	 */
+	static final Duration DISPATCH_BUDGET = Duration.ofSeconds(60);
 
 	private static final Logger log = LoggerFactory.getLogger(OrderEventRetryJob.class);
 
@@ -44,7 +50,7 @@ public class OrderEventRetryJob {
 	}
 
 	@Scheduled(fixedDelayString = "${orders.events.retry-interval}")
-	@SchedulerLock(name = "orderEventRetryJob", lockAtMostFor = "PT2M", lockAtLeastFor = "PT10S")
+	@SchedulerLock(name = "orderEventRetryJob", lockAtMostFor = "PT3M", lockAtLeastFor = "PT10S")
 	public void publishPendingEvents() {
 		Instant createdBefore = clock.instant().minus(gracePeriod);
 		List<Order> orders = orderRepository.findUnpublished(createdBefore, Limit.of(BATCH_SIZE));
@@ -53,9 +59,21 @@ public class OrderEventRetryJob {
 		}
 		log.info("Retrying OrderCreated for {} unpublished orders, oldest created at {}",
 				orders.size(), orders.getFirst().getCreatedAt());
+		awaitAll(dispatch(orders));
+	}
+
+	private Map<UUID, CompletableFuture<Void>> dispatch(List<Order> orders) {
+		Instant deadline = clock.instant().plus(DISPATCH_BUDGET);
 		Map<UUID, CompletableFuture<Void>> sends = new LinkedHashMap<>();
-		orders.forEach(order -> sends.put(order.getId(), orderEventPublisher.publish(order)));
-		awaitAll(sends);
+		for (Order order : orders) {
+			if (clock.instant().isAfter(deadline)) {
+				log.warn("Stopped retry batch after {} of {} orders; dispatch budget of {} used up",
+						sends.size(), orders.size(), DISPATCH_BUDGET);
+				break;
+			}
+			sends.put(order.getId(), orderEventPublisher.publish(order));
+		}
+		return sends;
 	}
 
 	private void awaitAll(Map<UUID, CompletableFuture<Void>> sends) {

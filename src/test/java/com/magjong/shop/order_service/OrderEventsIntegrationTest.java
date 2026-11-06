@@ -10,6 +10,7 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -18,6 +19,8 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.kafka.support.LoggingProducerListener;
+import org.springframework.kafka.support.ProducerListener;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.kafka.KafkaContainer;
 import tools.jackson.databind.JsonNode;
@@ -59,6 +62,9 @@ class OrderEventsIntegrationTest {
 
 	@Autowired
 	private KafkaContainer kafka;
+
+	@Autowired
+	private ObjectProvider<ProducerListener<?, ?>> producerListeners;
 
 	@BeforeEach
 	void releaseJobLock() {
@@ -110,6 +116,13 @@ class OrderEventsIntegrationTest {
 				.split("-")[1];
 		assertThat(logLine(output, "Created order " + orderId)).contains(traceId);
 		assertThat(logLine(output, "for order " + orderId + " to partition")).contains(traceId);
+	}
+
+	@Test
+	void failedSendsAreNotAlsoLoggedByTheDefaultProducerListener() {
+		assertThat(producerListeners.stream().toList())
+				.singleElement()
+				.isNotInstanceOf(LoggingProducerListener.class);
 	}
 
 	@Test

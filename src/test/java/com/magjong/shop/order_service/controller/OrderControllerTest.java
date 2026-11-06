@@ -21,6 +21,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -79,6 +80,25 @@ class OrderControllerTest {
 	void createOrderRejectsEmptyItems() throws Exception {
 		expectValidationError("""
 				{"items":[]}""", "items");
+	}
+
+	@Test
+	void createOrderRejectsMoreThanMaxItems() throws Exception {
+		String items = String.join(",", Collections.nCopies(CreateOrderRequest.MAX_ITEMS + 1,
+				"""
+				{"sku":"BOOK-001","quantity":1}"""));
+		expectValidationError("{\"items\":[" + items + "]}", "items");
+	}
+
+	@Test
+	void createOrderAcceptsMaxItems() throws Exception {
+		when(orderService.createOrder(any())).thenReturn(new OrderResponse(ORDER_ID, OrderStatus.PENDING,
+				List.of(), Instant.parse("2026-11-05T10:15:30Z")));
+		String items = String.join(",", Collections.nCopies(CreateOrderRequest.MAX_ITEMS,
+				"""
+				{"sku":"BOOK-001","quantity":1}"""));
+
+		post("{\"items\":[" + items + "]}").andExpect(status().isCreated());
 	}
 
 	@Test
