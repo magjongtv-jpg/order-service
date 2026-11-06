@@ -3,7 +3,7 @@
 Order service of a small order and inventory system. Receives orders over REST,
 publishes events to Kafka, and updates order status from inventory results.
 Sister projects: `inventory-service` and `shop-infra` (compose file, event
-contracts in `contracts/`).
+contracts in `services/contracts/`).
 
 ## Stack
 - Java 27 (Gradle toolchain), Spring Boot 4.1, Gradle wrapper
@@ -29,7 +29,7 @@ contracts in `contracts/`).
 
 ## Events
 - Topics: `orders.created` (we publish), `inventory.stock-reservation` (we consume)
-- Schemas are in `shop-infra/contracts/`. Every event uses the same envelope:
+- Schemas are in `shop-infra/services/contracts/`. Every event uses the same envelope:
   `eventId`, `eventType`, `eventVersion`, `occurredAt`, `payload`
 - Use `orderId` as the Kafka message key
 - Consumers must be idempotent: skip events whose `eventId` was already processed
